@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Navbar from './Navbar';
 import Hero from './Hero';
 import SocialProof from './SocialProof';
@@ -14,54 +14,81 @@ import QuerySystem from './QuerySystem';
 import AIHealthTracker from './AIHealthTracker';
 import EmergencyHelp from './EmergencyHelp';
 import MedicineAlerts from './MedicineAlerts';
-import Login from './Login'; // Import the new Login page
+import Login from './login'; // Your animated login page component
 
 function App() {
+  // --- STATE MANAGEMENT ---
+  // The current page being displayed (e.g., 'home', 'aiHealthTracker')
   const [currentPage, setCurrentPage] = useState('home');
-  const [token, setToken] = useState<string | null>(null);
+  // The authentication token. Initial state is read from localStorage.
+  const [token, setToken] = useState<string | null>(localStorage.getItem('jwtToken'));
 
-  // Check if a token is stored in the browser on component mount
-  useEffect(() => {
-    const storedToken = localStorage.getItem('medhelps_token');
-    if (storedToken) {
-      setToken(storedToken);
-    }
-  }, []);
-
+  // --- AUTHENTICATION HANDLERS ---
+  
+  /** 
+   * Called by the Login component on a successful login.
+   * @param newToken The JWT received from the backend.
+   */
   const handleLoginSuccess = (newToken: string) => {
-    localStorage.setItem('medhelps_token', newToken);
+    // 1. Store the token in the browser's local storage for persistence
+    localStorage.setItem('jwtToken', newToken);
+    // 2. Update the application's state with the new token
     setToken(newToken);
+    // 3. Navigate the user to the main landing page
+    setCurrentPage('home');
   };
   
+  /**
+   * Handles user logout. Can be called from the Navbar or if a session expires.
+   */
   const handleLogout = () => {
-    localStorage.removeItem('medhelps_token');
+    // 1. Remove the token from local storage
+    localStorage.removeItem('jwtToken');
+    // 2. Clear the token from the application's state
     setToken(null);
-    setCurrentPage('home'); // Go back to home on logout
+    // 3. Send the user back to the home/login view
+    setCurrentPage('home');
   };
 
+  /**
+   * Main navigation function passed to child components.
+   * @param page The key of the page to navigate to.
+   */
   const navigate = (page: string) => {
     setCurrentPage(page);
-    window.scrollTo(0, 0);
+    window.scrollTo(0, 0); // Scroll to the top of the page on navigation
   };
 
-  // If there's no token, show the Login page
+  // --- RENDER LOGIC ---
+
+  // If there is no token, the user is not logged in. Render the Login page.
   if (!token) {
     return <Login onLoginSuccess={handleLoginSuccess} navigate={navigate} />;
   }
 
-  // --- If logged in, show the main application ---
+  /**
+   * Renders the main content of the page based on the `currentPage` state.
+   * This is only called when the user is logged in.
+   */
   const renderContent = () => {
     switch (currentPage) {
       case 'querySystem':
-        return <QuerySystem navigate={navigate} token={token} />;
+        // The '!' tells TypeScript that we know `token` is a string here, fixing the warning.
+        return <QuerySystem navigate={navigate} token={token!} />;
+      
       case 'aiHealthTracker':
-        return <AIHealthTracker navigate={navigate} />;
+        // Pass the handleLogout function so the tracker can log out on session expiry.
+        return <AIHealthTracker navigate={navigate} onSessionExpired={handleLogout} />;
+        
       case 'emergencyHelp':
-        return <EmergencyHelp navigate={navigate} token={token} />;
+        return <EmergencyHelp navigate={navigate} />;
+        
       case 'medicineAlerts':
-        return <MedicineAlerts navigate={navigate} token={token} />;
+        return <MedicineAlerts navigate={navigate} />;
+        
       case 'home':
       default:
+        // This is the main landing page content.
         return (
           <>
             <Hero />
@@ -78,6 +105,7 @@ function App() {
     }
   };
 
+  // If a token exists, render the main application layout.
   return (
     <div className="min-h-screen bg-white">
       <Navbar navigate={navigate} onLogout={handleLogout} />

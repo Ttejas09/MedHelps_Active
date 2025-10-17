@@ -139,8 +139,8 @@ export default function AnimatedLoginPage({ onLoginSuccess, navigate }: Animated
 
     const formVariants = {
         hidden: { opacity: 0, y: 20 },
-        visible: { opacity: 1, y: 0, transition: { duration: 0.3, delay: 0.2 } },
-        exit: { opacity: 0, y: -20, transition: { duration: 0.2 } }
+        visible: { opacity: 1, y: 0, transition: { duration: 0.4, delay: 0 } },
+        exit: { opacity: 0, y: -20, transition: { duration: 0.3 } }
     };
 
     return (
@@ -163,8 +163,8 @@ export default function AnimatedLoginPage({ onLoginSuccess, navigate }: Animated
                         <motion.div
                             key="collapsed"
                             initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
+                            animate={{ opacity: 1, transition: { duration: 0.3 } }}
+                            exit={{ opacity: 0, transition: { duration: 0.3 } }}
                             className="flex flex-col items-center justify-center h-full"
                         >
                             <UserIcon />
@@ -175,9 +175,8 @@ export default function AnimatedLoginPage({ onLoginSuccess, navigate }: Animated
                         <motion.div
                             key="expanded"
                             initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0, transition: { duration: 0.2 } }}
-                            transition={{ delay: 0.3 }}
+                            animate={{ opacity: 1, transition: { duration: 0.4, delay: 0.2 } }}
+                            exit={{ opacity: 0, transition: { duration: 0.3 } }}
                         >
                             <AnimatePresence mode="wait">
                                 {isLogin ? (

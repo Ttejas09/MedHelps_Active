@@ -1,0 +1,95 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Visual Studio / .NET
+.vs/
+.vscode/
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+*.dbmdl
+*.pdb
+*.cache
+packages/
+*.nupkg
+project.lock.json
+*.log
+
+# Rider / IntelliJ
+.idea/
+*.iml
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-lock.yaml
+
+# Environment / secrets
+.env
+.env.*.local
+.env.local
+secrets.json
+*.key
+*.pem
+*.pfx
+
+# Python (if present)
+__pycache__/
+*.pyc
+venv/
+env/
+.venv/
+
+# Logs / coverage
+logs/
+*.log
+coverage/
+coverage-final.json
+.nyc_output/
+
+# Database / local data
+*.sqlite
+*.sqlite3
+*.db
+*.mdf
+*.ldf
+
+# Docker
+docker-compose.override.yml
+
+# OneDrive / temp
+~$*
+*.tmp
+
+# IDE miscellaneous
+*.userprefs
+*.sublime-workspace
+*.sublime-project
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.class
+
+# Ignore generated files from package managers/build tools
+bower_components/
+jspm_packages/
+
+# Keep workspace-specific files out
+!.gitignore

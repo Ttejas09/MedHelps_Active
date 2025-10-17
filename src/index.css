@@ -1,21 +1,46 @@
+/* Your existing imports */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
 
 @layer base {
   body {
     @apply font-sans text-charcoal;
+
+    /* 1. This sets the solid background color for the WHOLE page.
+         It's sampled from the light pink/purple in your image.
+    */
+    background-color: #F8F0F7; 
   }
 }
 
 @layer utilities {
+  /* Your existing utility classes (if any) */
   .gradient-primary {
     background: linear-gradient(135deg, #3B82F6 0%, #14B8A6 100%);
   }
 
   .text-gradient {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent;
+  }
+
+  /* 2. ADD THIS NEW CLASS.
+       This is the class you'll apply to your top section.
+  */
+  .hero-background {
+    /* The path is '/' because it's in the 'public' folder */
+    background-image: url('/hero-bg.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    
+    /* 3. This is the secret sauce. 
+         It makes the image fade to transparent at the bottom,
+         blending smoothly into the body's background-color.
+    */
+    mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
   }
 }
