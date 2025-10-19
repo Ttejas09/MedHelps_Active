@@ -59,6 +59,9 @@ class User(db.Model):
     queries = db.relationship('Query', backref='owner', lazy=True, cascade="all, delete-orphan")
     medicines = db.relationship('Medicine', backref='owner', lazy=True, cascade="all, delete-orphan")
     alerts = db.relationship('EmergencyAlert', backref='owner', lazy=True, cascade="all, delete-orphan")
+    
+    # NEW: Add relationship to comments
+    comments = db.relationship('Comment', backref='commenter', lazy=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -68,26 +71,58 @@ class User(db.Model):
 
 class Query(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_name = db.Column(db.String(80), nullable=False)  # <-- ADD THIS LINE
+    user_name = db.Column(db.String(80), nullable=False) 
     question_text = db.Column(db.String(1000), nullable=False)
     status = db.Column(db.String(50), nullable=False, default='Pending')
     timestamp = db.Column(db.DateTime, server_default=db.func.now())
     bt_id = db.Column(db.String(100), nullable=False)
     room_no = db.Column(db.String(50), nullable=False)
-    # ... rest of the columns
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
+    # NEW: Add relationship to comments
+    # 'dynamic' allows us to order_by when we fetch them
+    # cascade means if a query is deleted, all its comments are deleted
+    comments = db.relationship('Comment', 
+                             backref='query', 
+                             lazy='dynamic', 
+                             cascade="all, delete-orphan")
+
     def to_dict(self):
+        # NEW: Fetch comments, order by oldest first, and convert to dicts
+        query_comments = [comment.to_dict() for comment in self.comments.order_by(Comment.timestamp.asc()).all()]
+        
         return {
             'id': self.id,
-            'user_name': self.user_name,  # <-- ADD THIS LINE
+            'user_name': self.user_name,
             'bt_id': self.bt_id,
             'room_no': self.room_no,
             'question_text': self.question_text,
             'status': self.status,
             'timestamp': self.timestamp.isoformat(),
-            'owner_username': self.owner.username
+            'owner_username': self.owner.username,
+            'comments': query_comments  # NEW: Add comments to the response
         }
+
+# --- NEW MODEL: Comment ---
+class Comment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(500), nullable=False)
+    timestamp = db.Column(db.DateTime, server_default=db.func.now())
+    
+    # Foreign key to the User who wrote the comment
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Foreign key to the Query this comment is on
+    query_id = db.Column(db.Integer, db.ForeignKey('query.id'), nullable=False)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'text': self.text,
+            'timestamp': self.timestamp.isoformat(),
+            'commenter_username': self.commenter.username, # From backref
+            'query_id': self.query_id
+        }
+# --- END NEW MODEL ---
 
 class Medicine(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -142,7 +177,6 @@ def register():
 def login():
     data = request.get_json()
     username, password = data.get('username'), data.get('password')
-    # Use .first() to avoid a 404 error on a non-existent user
     user = User.query.filter_by(username=username).first()
     if user and user.check_password(password):
         access_token = create_access_token(identity=username)
@@ -150,23 +184,18 @@ def login():
     return jsonify({"msg": "Bad username or password"}), 401
 
 # --- QUERIES ---
-# --- QUERIES ---
-@app.route('/api/queries', methods=['GET', 'POST'])  # <-- FIX 1: Added 'GET'
+@app.route('/api/queries', methods=['GET', 'POST']) 
 @jwt_required()
-def handle_queries():  # <-- FIX 2: Renamed function
+def handle_queries(): 
     
-    # --- This block handles the GET request from your React useEffect ---
     if request.method == 'GET':
         try:
-            # Fetch all queries, order by newest first
             queries = Query.query.order_by(Query.timestamp.desc()).all()
-            # Convert each query object to a dictionary and return as JSON
             return jsonify([q.to_dict() for q in queries]), 200
         except Exception as e:
             print(f"--- 🔴 ERROR in handle_queries (GET): {e} ---")
             return jsonify({"msg": "An internal server error occurred while fetching", "error": str(e)}), 500
 
-    # --- This is your original POST logic, now inside an if-block ---
     if request.method == 'POST':
         current_username = get_jwt_identity()
         user = User.query.filter_by(username=current_username).first_or_404()
@@ -190,9 +219,6 @@ def handle_queries():  # <-- FIX 2: Renamed function
             db.session.add(new_query)
             db.session.commit()
             
-            # --- IMPORTANT ---
-            # Use socketio.emit and broadcast=True
-            # This sends the new query to ALL connected clients, not just the sender
             socketio.emit('new_query', new_query.to_dict(), broadcast=True) 
             
             return jsonify(new_query.to_dict()), 201
@@ -202,9 +228,45 @@ def handle_queries():  # <-- FIX 2: Renamed function
             print(f"--- 🔴 ERROR in handle_queries (POST): {e} ---")
             return jsonify({"msg": "An internal server error occurred while saving", "error": str(e)}), 500
     
-    # --- END: SAFER CODE ---
+# --- NEW ENDPOINT: Add Comment ---
+@app.route('/api/queries/<int:query_id>/comments', methods=['POST'])
+@jwt_required()
+def add_comment(query_id):
+    # Get the user who is posting
+    current_username = get_jwt_identity()
+    user = User.query.filter_by(username=current_username).first_or_404()
+    
+    # Find the query they are posting to
+    query = Query.query.get_or_404(query_id)
+    
+    data = request.get_json()
+    text = data.get('text')
+    
+    if not text or not text.strip():
+        return jsonify({"msg": "Comment text is required"}), 400
+    
+    try:
+        new_comment = Comment(
+            text=text.strip(),
+            user_id=user.id,
+            query_id=query.id
+        )
+        db.session.add(new_comment)
+        db.session.commit()
+        
+        # Emit the new comment to ALL clients
+        socketio.emit('new_comment', new_comment.to_dict(), broadcast=True)
+        
+        return jsonify(new_comment.to_dict()), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"--- 🔴 ERROR in add_comment: {e} ---")
+        return jsonify({"msg": "An internal server error occurred"}), 500
+# --- END NEW ENDPOINT ---
 
-# --- MEDICINES ---
+
+# --- MEDICINES (No changes needed) ---
 @app.route('/api/medicines', methods=['GET'])
 @jwt_required()
 def get_medicines():
@@ -243,7 +305,7 @@ def delete_medicine(medicine_id):
     socketio.emit('medicine_deleted', {'id': medicine_id}, broadcast=True)
     return jsonify({"msg": "Medicine deleted successfully"}), 200
 
-# --- EMERGENCY ALERTS ---
+# --- EMERGENCY ALERTS (No changes needed) ---
 @app.route('/api/alerts', methods=['POST'])
 @jwt_required()
 def create_alert():
@@ -266,7 +328,7 @@ def get_alerts():
     alerts = EmergencyAlert.query.order_by(EmergencyAlert.timestamp.desc()).all()
     return jsonify([a.to_dict() for a in alerts])
 
-# --- AI HEALTH TRACKER ---
+# --- AI HEALTH TRACKER (No changes needed) ---
 @app.route('/api/ai/health-check', methods=['POST'])
 @jwt_required()
 def health_check():
@@ -309,52 +371,69 @@ def handle_connect():
 def handle_disconnect():
     print('Client disconnected')
 
-# --- ADDED: Real-time handlers for Query System ---
 @socketio.on('update_query_status')
 def handle_update_query(data):
-    """Handles updating a query's status after verifying JWT."""
     token = data.get('token')
     if not token:
-        return # Or emit an error to the client
+        print("Socket error: No token provided")
+        return
+
     try:
-        # This will raise an error if the token is invalid or expired
-        decode_token(token)
+        payload = decode_token(token)
+        current_username = payload['sub'] 
     except Exception as e:
         print(f"Socket authentication error: {e}")
+        return
+
+    user = User.query.filter_by(username=current_username).first()
+    if not user:
+        print(f"Socket error: User {current_username} not found")
         return
 
     query_id = data.get('id')
     new_status = data.get('status')
-    query = Query.query.get(query_id)
+    query = Query.query.filter_by(id=query_id, user_id=user.id).first()
+
     if query:
         query.status = new_status
         db.session.commit()
-        # Broadcast the update to all connected clients
         emit('query_updated', query.to_dict(), broadcast=True)
+    else:
+        print(f"User {current_username} failed to update query {query_id} (not owner or DNE)")
+
 
 @socketio.on('delete_query')
 def handle_delete_query(data):
-    """Handles deleting a query after verifying JWT."""
     token = data.get('token')
     if not token:
+        print("Socket error: No token provided")
         return
+
     try:
-        decode_token(token)
+        payload = decode_token(token)
+        current_username = payload['sub']
     except Exception as e:
         print(f"Socket authentication error: {e}")
         return
 
+    user = User.query.filter_by(username=current_username).first()
+    if not user:
+        print(f"Socket error: User {current_username} not found")
+        return
+
     query_id = data.get('id')
-    query = Query.query.get(query_id)
+    query = Query.query.filter_by(id=query_id, user_id=user.id).first()
+
     if query:
         db.session.delete(query)
         db.session.commit()
-        # Broadcast the delete event to all connected clients
         emit('query_deleted', {'id': query_id}, broadcast=True)
+    else:
+        print(f"User {current_username} failed to delete query {query_id} (not owner or DNE)")
 
 # --- RUN APP ---
 if __name__ == '__main__':
     with app.app_context():
+        # This will create the new 'comment' table if it doesn't exist
         db.create_all() 
     socketio.run(app, debug=True, port=5000)
-
