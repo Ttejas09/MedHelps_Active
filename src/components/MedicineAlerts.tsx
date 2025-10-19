@@ -1,141 +1,168 @@
-import { useState, useEffect } from 'react';
-import { io } from 'socket.io-client';
-import { Pill, Calendar, Plus, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 
+// --- INTERFACES AND CONSTANTS ---
 interface Medicine {
   id: number;
-  name: string;
+  medicine_name: string;
   expiry_date: string;
-  timestamp: string;
 }
 
-const socket = io('http://127.0.0.1:5000');
+interface MedicineAlertsProps {
+  onSessionExpired?: () => void; // Prop is now optional
+}
 
-export default function MedicineAlerts({ navigate }: { navigate: (page: string) => void }) {
+const API_URL = 'http://127.0.0.1:5000';
+
+// --- COMPONENT ---
+const MedicineAlerts: React.FC<MedicineAlertsProps> = ({ onSessionExpired }) => {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  
-  // Form State
-  const [medName, setMedName] = useState('');
-  const [expiryDate, setExpiryDate] = useState('');
-  const [message, setMessage] = useState('');
+  const [newMedicineName, setNewMedicineName] = useState('');
+  const [newExpiryDate, setNewExpiryDate] = useState('');
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    const fetchMedicines = async () => {
-      try {
-        const response = await fetch('http://127.0.0.1:5000/api/medicines');
-        setMedicines(await response.json());
-      } catch (error) {
-        console.error("Failed to fetch medicines:", error);
-      }
-    };
-    fetchMedicines();
+  const token = localStorage.getItem('jwtToken');
 
-    socket.on('new_medicine', (newMedicine: Medicine) => {
-      setMedicines(prevMeds => [newMedicine, ...prevMeds]);
-    });
-
-    return () => {
-      socket.off('new_medicine');
-    };
-  }, []);
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!medName.trim() || !expiryDate.trim()) {
-      setMessage('Please fill out all fields.');
-      return;
-    }
+  // --- DATA FETCHING ---
+  const fetchMedicines = async () => {
+    // Use optional chaining to safely call the function
+    if (!token) { onSessionExpired?.(); return; } 
     try {
-      await fetch('http://127.0.0.1:5000/api/medicines', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: medName, expiry_date: expiryDate }),
+      setIsLoading(true);
+      const res = await fetch(`${API_URL}/api/medicines`, {
+        headers: { 'Authorization': `Bearer ${token}` },
       });
-      setMedName('');
-      setExpiryDate('');
-      setMessage('');
-      setShowModal(false); // Close modal on success
-    } catch (error) {
-      setMessage('Failed to add medicine.');
+      // Use optional chaining here as well
+      if (res.status === 401) { onSessionExpired?.(); return; }
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      setMedicines(data);
+    } catch (err) { 
+      console.error(err);
+      setError('Failed to fetch medicines.');
+    } finally { 
+      setIsLoading(false); 
     }
   };
 
-  return (
-    <>
-      <div className="bg-gray-50 min-h-screen">
-        <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center mb-12">
-            <div className="text-left">
-              <h1 className="text-4xl md:text-5xl font-bold text-gray-800">Medicine Alerts</h1>
-              <p className="mt-2 text-xl text-gray-600">Track medicine inventory and expiry dates.</p>
-            </div>
-             <button onClick={() => setShowModal(true)} className="flex items-center bg-purple-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-purple-700 transition-all shadow-lg">
-                <Plus className="w-5 h-5 mr-2" /> Add Medicine
-            </button>
-          </div>
+  useEffect(() => {
+    fetchMedicines();
+  }, []);
 
-          {/* Display Section */}
-          <div className="space-y-4">
-            {medicines.length > 0 ? medicines.map(med => (
-                <div key={med.id} className="bg-white p-4 rounded-xl shadow-md border border-gray-100 flex items-center justify-between">
-                    <div className="flex items-center">
-                        <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
-                            <Pill className="w-6 h-6 text-purple-600"/>
-                        </div>
-                        <div>
-                           <p className="font-bold text-lg text-gray-800">{med.name}</p>
-                           <p className="text-sm text-gray-500">Added: {new Date(med.timestamp).toLocaleDateString()}</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center bg-red-100 text-red-800 p-2 rounded-lg">
-                       <Calendar className="w-5 h-5 mr-2"/>
-                       <span className="font-semibold text-sm">Expires: {med.expiry_date}</span>
-                    </div>
-                </div>
-            )) : (
-              <div className="text-center py-12 bg-white rounded-2xl shadow-md border">
-                <Pill className="w-12 h-12 mx-auto text-gray-400" />
-                <h3 className="mt-4 text-lg font-semibold text-gray-700">No Medicines Added Yet</h3>
-                <p className="mt-1 text-gray-500">Click "Add Medicine" to get started.</p>
-              </div>
-            )}
-          </div>
-          <div className="text-center mt-12">
-              <button onClick={() => navigate('home')} className="bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition-all">
-                Back to Home
-              </button>
-          </div>
+  // --- HANDLERS ---
+  const handleAddMedicine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!newMedicineName || !newExpiryDate) {
+      setError('Both fields are required.');
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${API_URL}/api/medicines`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ medicineName: newMedicineName, expiryDate: newExpiryDate }), // Correct field names
+      });
+      if (!res.ok) throw new Error('Server rejected request');
+      
+      setShowModal(false);
+      setNewMedicineName('');
+      setNewExpiryDate('');
+      fetchMedicines(); // Refresh the list
+    } catch (err) {
+      setError('Failed to add medicine. Please try again.');
+    }
+  };
+  
+  const handleDeleteMedicine = async (medicineId: number) => {
+    if (!window.confirm('Are you sure you want to delete this medicine?')) return;
+    try {
+        const res = await fetch(`${API_URL}/api/medicines/${medicineId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error("Failed to delete");
+        fetchMedicines(); // Refresh the list
+    } catch (err) {
+        alert('Failed to delete medicine.');
+    }
+  };
+
+  // --- HELPERS ---
+  const getExpiryStatus = (expiryDate: string) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(expiryDate);
+    const diffTime = expiry.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return { text: 'Expired', color: 'bg-red-500 text-white' };
+    if (diffDays <= 30) return { text: `Expires in ${diffDays} days`, color: 'bg-yellow-400 text-gray-800' };
+    return { text: `Expires on ${new Date(expiryDate).toLocaleDateString()}`, color: 'bg-green-500 text-white' };
+  };
+
+  // --- RENDER ---
+  return (
+    <div className="min-h-screen w-full bg-gray-50 pt-28 pb-12 px-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-800">Medicine Alerts</h1>
+          <button onClick={() => setShowModal(true)} className="gradient-primary text-white py-2 px-5 rounded-lg font-semibold hover:opacity-90 transition-transform hover:scale-105">
+            + Add Medicine
+          </button>
         </div>
+
+        {isLoading ? <p>Loading medicines...</p> : medicines.length === 0 ? (
+          <div className="text-center bg-white p-10 rounded-lg shadow"><p className="text-gray-500">You haven't added any medicines yet.</p></div>
+        ) : (
+          <div className="space-y-4">
+            {medicines.map((med) => {
+                const status = getExpiryStatus(med.expiry_date);
+                return (
+                    <div key={med.id} className="bg-white p-4 rounded-lg shadow-md flex justify-between items-center">
+                        <span className="font-semibold text-lg text-gray-700">{med.medicine_name}</span>
+                        <div className="flex items-center gap-4">
+                            <span className={`px-3 py-1 text-sm font-medium rounded-full ${status.color}`}>{status.text}</span>
+                            <button onClick={() => handleDeleteMedicine(med.id)} className="text-xl text-red-500 hover:text-red-700 font-bold">&times;</button>
+                        </div>
+                    </div>
+                );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Add Medicine Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md m-4 relative">
-            <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-              <X className="w-6 h-6" />
-            </button>
-            <h2 className="text-2xl font-bold mb-6 text-charcoal">Add New Medicine</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="text-sm font-medium text-gray-700">Medicine Name</label>
-                    <input type="text" value={medName} onChange={(e) => setMedName(e.target.value)} placeholder="e.g., Paracetamol" className="mt-1 w-full p-3 border border-gray-300 rounded-lg"/>
-                </div>
-                <div>
-                    <label className="text-sm font-medium text-gray-700">Expiry Date</label>
-                    <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="mt-1 w-full p-3 border border-gray-300 rounded-lg"/>
-                </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                 <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-semibold">Cancel</button>
-                 <button type="submit" className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-semibold">Add Medicine</button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold">Add New Medicine</h2>
+              <button onClick={() => {setShowModal(false); setError('');}} className="text-2xl font-bold text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            <form onSubmit={handleAddMedicine}>
+              <div className="mb-4">
+                <label htmlFor="medicineName" className="block text-sm font-medium text-gray-700">Medicine Name</label>
+                <input type="text" id="medicineName" value={newMedicineName} onChange={(e) => setNewMedicineName(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"/>
               </div>
-              {message && <p className="text-center text-sm text-red-500 mt-2">{message}</p>}
+              <div className="mb-4">
+                <label htmlFor="expiryDate" className="block text-sm font-medium text-gray-700">Expiry Date</label>
+                <input type="date" id="expiryDate" value={newExpiryDate} onChange={(e) => setNewExpiryDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary"/>
+              </div>
+              {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+              <div className="flex justify-end gap-4">
+                <button type="button" onClick={() => {setShowModal(false); setError('');}} className="bg-gray-200 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                <button type="submit" className="gradient-primary text-white py-2 px-4 rounded-lg hover:opacity-90">Add Medicine</button>
+              </div>
             </form>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
-}
+};
+
+export default MedicineAlerts;
 

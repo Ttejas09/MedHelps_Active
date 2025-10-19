@@ -61,7 +61,7 @@ const AIHealthTracker: React.FC<AIHealthTrackerProps> = ({ navigate, onSessionEx
   
   return (
     // The main container blends with your body's background color
-    <div className="min-h-screen w-full pt-28 pb-12 px-4">
+    <div id="ai-assistant" className="min-h-screen w-full pt-28 pb-12 px-4">
       <div className="max-w-3xl mx-auto">
         <div className="text-center mb-10">
           {/* Apply the text-gradient class for a vibrant title */}
